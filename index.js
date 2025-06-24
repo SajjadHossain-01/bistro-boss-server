@@ -3,8 +3,8 @@ const app = express();
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const cors = require("cors");
-const admin = require('firebase-admin');
-const serviceAccount = require('./firebase-adminsdk.json');
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-adminsdk.json");
 const port = process.env.PORT || 5000;
 const {
   createPayment,
@@ -14,8 +14,8 @@ const {
   refundTransaction,
 } = require("bkash-payment");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ft5am.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
+// const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ft5am.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.z7vghvz.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -58,12 +58,15 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
+    await client.connect();
 
-    const userCollection = client.db("bistroBossDb").collection("users");
-    const menuCollection = client.db("bistroBossDb").collection("menu");
-    const reviewCollection = client.db("bistroBossDb").collection("reviews");
-    const cartCollection = client.db("bistroBossDb").collection("carts");
+    const userCollection = client.db("vojonNirDb").collection("users");
+    const menuCollection = client.db("vojonNirDb").collection("menu");
+    const reviewCollection = client.db("vojonNirDb").collection("reviews");
+    const cartCollection = client.db("vojonNirDb").collection("carts");
+    const reservationCollection = client
+      .db("vojonNirDb")
+      .collection("reservation");
 
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
@@ -82,12 +85,12 @@ async function run() {
         const { amount, callbackURL, orderID, reference } = req.body;
         const paymentDetails = {
           amount: amount || 10, // your product price
-          callbackURL: callbackURL , // your callback route
+          callbackURL: callbackURL, // your callback route
           orderID: orderID || "Order_101", // your orderID
           reference: reference || "1", // your reference
         };
         const result = await createPayment(bkashConfig, paymentDetails);
-       res.status(200).send(result?.bkashURL);
+        res.status(200).send(result?.bkashURL);
       } catch (e) {
         console.log(e);
       }
@@ -114,7 +117,7 @@ async function run() {
             statusMessage: result?.statusMessage,
           };
         // You may use here WebSocket, server-sent events, or other methods to notify your client
-        res.redirect('https://bistro-boss-dbf78.web.app')
+        res.redirect("https://bistro-boss-dbf78.web.app");
       } catch (e) {
         console.log(e);
       }
@@ -229,7 +232,7 @@ async function run() {
 
     app.get("/menus/:id", async (req, res) => {
       const id = req.params.id;
-      const query = { _id: id };
+      const query = { _id: new ObjectId(id)};
       const result = await menuCollection.findOne(query);
       res.send(result);
     });
@@ -243,7 +246,7 @@ async function run() {
     app.patch("/menu/:id", async (req, res) => {
       const item = req.body;
       const id = req.params.id;
-      const query = { _id: id };
+      const query = { _id: new ObjectId(id) };
       const updatedDoc = {
         $set: {
           name: item.name,
@@ -269,6 +272,12 @@ async function run() {
       const result = await reviewCollection.find().toArray();
       res.send(result);
     });
+
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+      const result = await reviewCollection.insertOne(review);
+      res.send(result);
+    });
     // cart collection
     app.get("/carts", async (req, res) => {
       const email = req.query.email;
@@ -290,11 +299,58 @@ async function run() {
       res.send(result);
     });
 
+    //  reservation api
+    app.get("/reservations", async (req, res) => {
+      const email = req.query.email;
+      if (email) {
+        const query = { email: email };
+        const result = await reservationCollection.find(query).toArray();
+        res.send(result);
+      } else {
+        const result = await reservationCollection.find().toArray();
+        res.send(result);
+      }
+    });
+
+    app.post("/reservations", async (req, res) => {
+      const reservationData = req.body;
+      const result = await reservationCollection.insertOne(reservationData);
+      res.send(result);
+    });
+
+    app.patch(
+      "/reservations/pending/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+
+        const updatedDoc = {
+          $set: {
+            isPending: true,
+          },
+        };
+        const result = await reservationCollection.updateOne(
+          filter,
+          updatedDoc
+        );
+        res.send(result);
+      }
+    );
+
+    app.delete("/reservations/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await reservationCollection.deleteOne(query);
+      res.send(result);
+    });
+
     // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
